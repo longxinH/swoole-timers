@@ -5,6 +5,8 @@ use \Swoole\Packet\Format;
 use \Swoole\Client\Client;
 use \Swoole\Cache\Redis;
 
+include '../../vendor/autoload.php';
+
 class TimersServer extends Server {
 
     /**
@@ -272,8 +274,6 @@ class TimersServer extends Server {
     }
 
 }
-
-include '../../vendor/autoload.php';
 
 $server = new TimersServer('../config/swoole.ini');
 $server->run();
