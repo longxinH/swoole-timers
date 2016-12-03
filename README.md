@@ -22,7 +22,7 @@ swoole 异步定时任务器
  cd swoole-rpc/
  composer install
 ```
-> 引入 vendor/autoload.php即可
+> swoole-timers/admin/service/server/swoole.php文件中  引入youpath/vendor/autoload.php即可
 
 ##运行redis
 ```shell
