@@ -1,0 +1,26 @@
+{
+    "name": "longxinh/timers",
+    "description": "Swoole Timers",
+    "keywords": ["Timers"],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "XinHui.Long",
+            "email": "longxinhui.e@gmail.com"
+        }
+    ],
+    "require": {
+        "php": ">=5.4",
+        "ext-swoole": "1.8.*",
+        "longxinh/rpc": "dev-master"
+    },
+    "autoload": {
+    },
+    "repositories": {
+        "packagist": {
+            "type": "composer",
+            "url": "https://packagist.phpcomposer.com"
+        }
+    },
+    "minimum-stability": "dev"
+}
