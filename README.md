@@ -8,7 +8,7 @@ swoole 异步定时任务器
 > * Redis
 
 ##基础组件
-> * swoole-rpc  https://github.com/longxinH/swoole-rpc
+> * swoole-rpc  <https://github.com/longxinH/swoole-rpc>
 
 ----------
 
