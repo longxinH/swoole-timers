@@ -52,6 +52,14 @@ redis-server
 ```
 http://localhost/swoole-timers/admin/
 ```
+
+##定时任务规则
+1. 支持域名地址。
+2. 暂时只支持PHP语法的脚本。忽略php开始```<?php```和结束标签 ```?>```
+```php
+file_put_contents('/tmp/t.log', date('Y-m-d H:i:s') . PHP_EOL, FILE_APPEND);
+```
+
 ----------
 
 #感谢
