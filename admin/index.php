@@ -12,7 +12,7 @@ foreach (glob(CONFIG_PATH . '/*.ini') as $val) {
     $config = array_merge($config, parse_ini_file($val, true));
 }
 
-error_reporting(E_ALL);
-ini_set('display_errors', 0);
+//error_reporting(E_ALL);
+//ini_set('display_errors', 0);
 
 SinglePHP::getInstance($config)->run();

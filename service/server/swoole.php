@@ -14,11 +14,6 @@ class TimersServer extends Server {
      */
     protected $redis;
 
-    public function onWorkerStart(\swoole_server $server, $workerId)
-    {
-        $this->redis = Redis::getInstance($this->config['redis']);
-    }
-
     /**
      * 注册 \swoole_process
      */
@@ -29,24 +24,26 @@ class TimersServer extends Server {
              * @var $redis \Redis
              */
             $redis = Redis::getInstance($this->config['redis']);
-            $client = new Client();
-            $client->connect($this->host, $this->port);
             while (true) {
-                //todo 阻塞获取队列
-                $mq = $redis->brPop('timerslist', 0);
+                $client = new Client();
+                $client->connect($this->host, $this->port);
 
-                if ($mq && isset($mq[1])) {
-                    //todo  send client task
-                    $client->send([
-                        'params'    => $mq[1],
-                        'cmd'       => 'task'
-                    ]);
+                if (intval($redis->get('task_num')) < $this->config['swoole']['task_worker_num']) {
+                    //todo 阻塞获取队列
+                    $mq = $redis->brPop('timerslist', 0);
+
+                    if ($mq && isset($mq[1])) {
+                        //todo  send client task
+                        $client->send([
+                            'params'    => $mq[1],
+                            'cmd'       => 'task'
+                        ]);
+                    }
                 }
-
-                usleep(1000);
             }
-
         });
+
+        $this->resetTask();
 
         $this->server->addProcess($process);
     }
@@ -61,6 +58,8 @@ class TimersServer extends Server {
      */
     public function doWork(\swoole_server $server, $fd, $from_id, $data, $header)
     {
+        $redis = Redis::getInstance($this->config['redis']);
+
         //校验开始时间
         if (strcasecmp($data['start_time'], date('Y-m-d H:i:s', strtotime($data['start_time']))) !== 0) {
             return Format::packFormat('', 'start time error', -1);
@@ -104,11 +103,11 @@ class TimersServer extends Server {
             $task_type = $data['plan'] === 1 ? 'tasklist_loop' : 'tasklist_once';
 
             //todo 写入循环执行管理列表
-            $this->redis->sAdd($task_type, $unid);
+            $redis->sAdd($task_type, $unid);
             //todo 记录详细信息
-            $this->redis->set('task:' . $unid, json_encode($redis_data));
+            $redis->set('task:' . $unid, json_encode($redis_data));
             //todo 唯一id写入队列
-            $this->redis->lPush('timerslist', $unid);
+            $redis->lPush('timerslist', $unid);
 
             return Format::packFormat($unid, 'add mq success');
 
@@ -118,7 +117,7 @@ class TimersServer extends Server {
                 return Format::packFormat('', 'empty unid', -4);
             }
 
-            $old_data = $this->redis->get('task:' . $unid);
+            $old_data = $redis->get('task:' . $unid);
 
             if (empty($old_data)) {
                 return Format::packFormat('', 'task not exist', -5);
@@ -135,7 +134,7 @@ class TimersServer extends Server {
             ];
 
             //todo 标记任务被编辑过
-            $this->redis->set('task:' . $unid . '_up', json_encode($tmp_data));
+            $redis->set('task:' . $unid . '_up', json_encode($tmp_data));
 
             return Format::packFormat($unid, 'edit mq success');
 
@@ -145,7 +144,7 @@ class TimersServer extends Server {
                 return Format::packFormat('', 'empty unid', -4);
             }
 
-            $old_data = $this->redis->get('task:' . $unid);
+            $old_data = $redis->get('task:' . $unid);
 
             if (empty($old_data)) {
                 return Format::packFormat('', 'task not exist', -5);
@@ -156,7 +155,7 @@ class TimersServer extends Server {
             ];
 
             //todo 标记更新状态
-            $this->redis->set('task:' . $unid . '_up_status', json_encode($tmp_data));
+            $redis->set('task:' . $unid . '_up_status', json_encode($tmp_data));
 
             return Format::packFormat($unid, 'update status success');
 
@@ -175,33 +174,62 @@ class TimersServer extends Server {
      */
     public function doTask(\swoole_server $server, $task_id, $from_id, $data)
     {
-        if (!empty($data['params'])) {
-            $unid = $data['params'];
-            $data = $this->redis->get('task:' . $unid);
+        $redis = Redis::getInstance($this->config['redis']);
 
-            if (empty($data)) {
-                return null;
-            }
+        $redis->incr('task_num');
 
-            $data = json_decode($data, true);
-            $queue = true;
+        if (empty($data['params'])) {
+            $redis->decr('task_num');
+            return 'error';
+        }
 
-            //todo 判断是否存在标记被编辑过
-            if ($tmp_data = $this->redis->get('task:' . $unid . '_up')) {
-                $data = array_merge($data, json_decode($tmp_data, true));
-                $this->redis->del('task:' . $unid . '_up');
-            }
+        $unid = $data['params'];
+        $data = $redis->get('task:' . $unid);
 
-            //todo 判断是否存在标记修改状态
-            if ($status_data = $this->redis->get('task:' . $unid . '_up_status')) {
-                $data = array_merge($data, json_decode($status_data, true));
-                $this->redis->del('task:' . $unid . '_up_status');
-            }
+        if (empty($data)) {
+            $redis->decr('task_num');
+            return null;
+        }
 
-            if (intval($data['status']) === 1) {
-                //首次运行
-                if ($data['run_number'] === 0) {
-                    if (strtotime($data['start_time']) - time() <= 0) {
+        $data = json_decode($data, true);
+        $queue = true;
+
+        //todo 判断是否存在标记被编辑过
+        if ($tmp_data = $redis->get('task:' . $unid . '_up')) {
+            $data = array_merge($data, json_decode($tmp_data, true));
+            $redis->del('task:' . $unid . '_up');
+        }
+
+        //todo 判断是否存在标记修改状态
+        if ($status_data = $redis->get('task:' . $unid . '_up_status')) {
+            $data = array_merge($data, json_decode($status_data, true));
+            $redis->del('task:' . $unid . '_up_status');
+        }
+
+        if (intval($data['status']) === 1) {
+            //首次运行
+            if ($data['run_number'] === 0) {
+                if (strtotime($data['start_time']) - time() <= 0) {
+                    //todo 记录最后运行时间起始
+                    $data['last_run_start'] = date('Y-m-d H:i:s');
+
+                    if ($this->runTimingTask($unid, $data['plan'], $data['task']) === false) {
+                        //todo log
+                    }
+
+                    //一次执行 不写入队列
+                    if ($data['plan'] == 2) {
+                        $queue = false;
+                    }
+
+                    $data['last_run_end'] = date('Y-m-d H:i:s');
+                    $data['run_number']++;
+                }
+            } else {
+                //todo 没有结束时间 && 没有到结束时间
+                if ($data['end_time'] == 0 || strtotime($data['end_time']) - time() >= 0) {
+                    //todo 超过开始时间 && 超过定时
+                    if (time() - strtotime($data['start_time']) >= 0 && strtotime($data['last_run_end']) + $data['interval'] <= time()) {
                         //todo 记录最后运行时间起始
                         $data['last_run_start'] = date('Y-m-d H:i:s');
 
@@ -217,36 +245,26 @@ class TimersServer extends Server {
                         $data['last_run_end'] = date('Y-m-d H:i:s');
                         $data['run_number']++;
                     }
-                } else {
-                    //todo 没有结束时间 && 没有到结束时间
-                    if ($data['end_time'] == 0 || strtotime($data['end_time']) - time() >= 0) {
-                        //todo 超过开始时间 && 超过定时
-                        if (time() - strtotime($data['start_time']) >= 0 && strtotime($data['last_run_end']) + $data['interval'] <= time()) {
-                            //todo 记录最后运行时间起始
-                            $data['last_run_start'] = date('Y-m-d H:i:s');
-
-                            if ($this->runTimingTask($unid, $data['plan'], $data['task']) === false) {
-                                //todo log
-                            }
-
-                            $data['last_run_end'] = date('Y-m-d H:i:s');
-                            $data['run_number']++;
-                        }
-                    }
+                } else if ($data['end_time'] != 0 && strtotime($data['end_time']) - time() < 0) {
+                    //todo 任务已过有效时间
+                    $queue = false;
                 }
             }
-
-            $this->redis->set('task:' . $unid, json_encode($data));
-
-            if ($queue === true) {
-                //todo 写入队列
-                $this->redis->lPush('timerslist', $unid);
-            }
-
-            return 'ok';
+        } else {
+            $queue = false;
         }
 
-        return 'error';
+        $redis->set('task:' . $unid, json_encode($data));
+
+        if ($queue === true) {
+            //todo 写入队列
+            $redis->lPush('timerslist', $unid);
+        }
+
+        $redis->decr('task_num');
+
+        return 'ok';
+
     }
 
     /**
@@ -262,7 +280,11 @@ class TimersServer extends Server {
             if (filter_var($task, FILTER_VALIDATE_URL)) {
                 file_get_contents($task);
             } else if (is_file($task)) {
-                @eval(file_get_contents($task));
+                $task = file_get_contents($task);
+                $task = ltrim($task, '<?php');
+                $task = ltrim($task, '<?');
+                $task = rtrim($task, '?>');
+                @eval($task);
             } else {
                 return false;
             }
@@ -273,8 +295,50 @@ class TimersServer extends Server {
         return true;
     }
 
+    /**
+     * 重置任务  用于防止服务异常中断 导致队列掉失
+     */
+    private function resetTask()
+    {
+        $redis = new \Redis();
+        $redis->connect($this->config['redis']['host'], $this->config['redis']['port']);
+
+        $mq = $redis->lRange('timerslist', 0, -1);
+        $loop = $redis->sMembers('tasklist_loop');
+        $once = $redis->sMembers('tasklist_once');
+
+        if ($loop) {
+            foreach ($loop as $value) {
+                if (!in_array($value, $mq)) {
+                    $loop_mq = json_decode($redis->get('task:' . $value), true);
+
+                    if ($loop_mq['end_time'] == 0 || strtotime($loop_mq['end_time']) - time() >= 0) {
+                        $redis->lPush('timerslist', $value);
+                    }
+                }
+            }
+        }
+
+        if ($once) {
+            foreach ($once as $value) {
+                if (!in_array($value, $mq)) {
+                    $once_mq = json_decode($redis->get('task:' . $value), true);
+
+                    if ($once_mq['end_time'] == 0 || strtotime($once_mq['end_time']) - time() >= 0) {
+                        $redis->lPush('timerslist', $value);
+                    }
+                }
+            }
+        }
+    }
+
 }
 
-$server = new TimersServer('../config/swoole.ini');
+/*
+ * 项目所在目录
+ */
+define('PROJECT_ROOT', dirname(__DIR__));
+
+$server = new TimersServer('../config/swoole.ini', 'timers');
 $server->run();
 
