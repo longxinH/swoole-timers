@@ -12,7 +12,7 @@
     "require": {
         "php": ">=5.4",
         "ext-swoole": ">=1.8",
-        "longxinh/rpc": "dev-master"
+        "longxinh/swoole": "dev-master"
     },
     "autoload": {
     },

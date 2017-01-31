@@ -55,7 +55,7 @@
                                     <div class="profile-info-name"> 服务信息 </div>
 
                                     <div class="profile-info-value">
-                                        <span>host : <?php echo C('server')['host'] ?> <br> port : <?php echo C('server')['port'] ?></span>
+                                        <span>host : <?php echo $server_host ?> <br> port : <?php echo $server_port ?></span>
                                     </div>
                                 </div>
 
@@ -191,7 +191,7 @@
                                                             if ($val['plan'] == 1) {
                                                         ?>
                                                             <label class="inline">
-                                                                <input data-id="<?php echo $val['unid']; ?>" data-name="status" data-act="<?php echo $val['status'] == 1 ? 0 : 1 ?>" <?php echo $server_status && $val['status'] == 1 ? 'checked' : '' ?> <?php echo $server_status ? '' : 'disabled' ?> type="checkbox" class="ace ace-switch ace-switch-3 point">
+                                                                <input data-id="<?php echo $val['unid']; ?>" data-name="status" data-act="<?php echo intval($val['status']) === 1 ? 0 : 1 ?>" <?php echo $server_status && $val['status'] == 1 ? 'checked' : '' ?> <?php echo $server_status ? '' : 'disabled' ?> type="checkbox" class="ace ace-switch ace-switch-3 point">
                                                                 <span class="lbl middle"></span>
                                                             </label>
                                                         <?php

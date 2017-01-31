@@ -6,6 +6,11 @@ use \Swoole\Packet\Format;
 
 class IndexController extends BaseController {
 
+    protected $redis_config = [
+        'host'  => '127.0.0.1',
+        'port'  => '6379'
+    ];
+
     /**
      * 列表页
      */
@@ -18,7 +23,7 @@ class IndexController extends BaseController {
         /**
          * @var $redis \Redis
          */
-        $redis = Redis::getInstance(C('redis'));
+        $redis = Redis::getInstance($this->redis_config);
 
         switch ($plan) {
             case 1:
@@ -37,8 +42,7 @@ class IndexController extends BaseController {
 
         $out = [];
 
-        $client = new Client();
-        $client->connect(C('server')['host'], C('server')['port']);
+        $client = new \Swoole\Client\Sync\Tcp('0.0.0.0:9501');
 
         if ($data) {
             $Pagination = new ArrayPagination($page, $size);
@@ -52,9 +56,16 @@ class IndexController extends BaseController {
             $out['pager'] = $data['pager'];
         }
 
+        $this->assign('server_status', false);
+
+        $client->connect(function (\swoole_client $client) {
+            $this->assign('server_status', true);
+        })->send('sync-tcp');
+
         $this->assign('list', $out);
         $this->assign('plan', $plan);
-        $this->assign('server_status', $client->isConnected());
+        $this->assign('server_host', '0.0.0.0');
+        $this->assign('server_port', '9501');
         $this->display();
     }
 
@@ -80,7 +91,7 @@ class IndexController extends BaseController {
         /**
          * @var $redis \Redis
          */
-        $redis = Redis::getInstance(C('redis'));
+        $redis = Redis::getInstance($this->redis_config);
         $data = $redis->get('task:' . $unid);
 
         if (empty($data)) {
@@ -126,6 +137,11 @@ class IndexController extends BaseController {
 
         //循环执行
         if ($plan === 1) {
+            //fix 少于10
+            if (strlen(date('H', strtotime($start_time_loop_s))) > 2) {
+                $start_time_loop_s = str_replace($start_time_loop_s, '0' . $start_time_loop_s, $start_time_loop_s);
+            }
+
             $s_date = $start_time_loop . ' ' . $start_time_loop_s;
             //检查开始时间格式
             if (empty($s_date) || strcasecmp($s_date, date('Y-m-d H:i:s', strtotime($s_date))) !== 0) {
@@ -175,14 +191,7 @@ class IndexController extends BaseController {
             );
         }
 
-        $client = new Client();
-        $client->connect(C('server')['host'], C('server')['port']);
-
-        if (!$client->isConnected()) {
-            $this->ajaxReturn(
-                Format::packFormat('', '无法连接到swoole服务，添加任务失败', -8)
-            );
-        }
+        $client = new \Swoole\Client\Sync\Tcp('0.0.0.0:9501');
 
         $data = [
             'do'            => $do,
@@ -199,9 +208,21 @@ class IndexController extends BaseController {
             'addtime'       => date('Y-m-d H:i:s')
         ];
 
-        $result = $client->send($data);
+        $client->connect(function (\swoole_client $client) {
+            if (!$client->isConnected()) {
+                $client->close();
+                $this->ajaxReturn(
+                    Format::packFormat('', '无法连接到swoole服务，添加任务失败', -8)
+                );
+            }
+        })->recv(function (\swoole_client $client, $data) {
+            $client->close();
+            $this->ajaxReturn(json_decode($data, true));
+        })->send(json_encode($data));
 
-        $this->ajaxReturn($result);
+        $this->ajaxReturn(
+            Format::packFormat('', '操作失败', -9)
+        );
     }
 
     /**
@@ -221,7 +242,7 @@ class IndexController extends BaseController {
         /**
          * @var $redis \Redis
          */
-        $redis = Redis::getInstance(C('redis'));
+        $redis = Redis::getInstance($this->redis_config);
         $data = $redis->get('task:' . $unid);
 
         if (empty($data)) {
@@ -241,18 +262,23 @@ class IndexController extends BaseController {
             'unid'          => $unid
         ];
 
-        $client = new Client();
-        $client->connect(C('server')['host'], C('server')['port']);
+        $client = new \Swoole\Client\Sync\Tcp('0.0.0.0:9501');
 
-        if (!$client->isConnected()) {
-            $this->ajaxReturn(
-                Format::packFormat('', '无法连接到swoole服务，添加任务失败', -8)
-            );
-        }
+        $client->connect(function (\swoole_client $client) {
+            if (!$client->isConnected()) {
+                $client->close();
+                $this->ajaxReturn(
+                    Format::packFormat('', '无法连接到swoole服务，添加任务失败', -8)
+                );
+            }
+        })->recv(function (\swoole_client $client, $data) {
+            $client->close();
+            $this->ajaxReturn(json_decode($data, true));
+        })->send(json_encode($send_data));
 
-        $result = $client->send($send_data);
-
-        $this->ajaxReturn($result);
+        $this->ajaxReturn(
+            Format::packFormat('', '操作失败', -9)
+        );
     }
 
 }
