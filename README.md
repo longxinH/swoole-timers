@@ -8,7 +8,7 @@ swoole 异步定时任务器
 > * Redis
 
 ##基础组件
-> * swoole-rpc  <https://github.com/longxinH/swoole-rpc>
+> * swoole  <https://github.com/longxinH/swoole>
 
 ----------
 
@@ -22,7 +22,7 @@ swoole 异步定时任务器
  cd swoole-rpc/
  composer install
 ```
-> swoole-timers/service/server/swoole.php文件中
+> swoole-timers/service/timers.php文件中
 ```php
  include 'youpath/vendor/autoload.php';
 ```
@@ -44,8 +44,8 @@ redis-server
 
 ##运行定时服务
 ```shell
- cd swoole-timers/service/server/
- php swoole.php start
+ cd swoole-timers/service/
+ php timers.php start
 ```
 
 ##访问管理地址
