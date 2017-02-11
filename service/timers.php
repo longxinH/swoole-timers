@@ -12,6 +12,10 @@ class TimersServer extends Tcp {
      */
     protected $redis;
 
+    const TASK_NUM = 20;
+
+    const WORKER_NUM = 4;
+
     public function onWorkerStart(\swoole_server $server, $workerId)
     {
         $this->redis = new \Swoole\Cache\Redis('127.0.0.1', 6379);
@@ -140,8 +144,18 @@ class TimersServer extends Tcp {
                 return json_encode(Format::packFormat('', 'error do', -99));
             }
         }
+    }
 
-
+    /**
+     * @param $server
+     * @param $src_worker_id
+     * @param $data
+     */
+    public function onPipeMessage($server, $src_worker_id, $data)
+    {
+        $data = json_decode($data, true);
+        $data['fd'] = null;
+        $server->task($data);
     }
 
     /**
@@ -157,6 +171,7 @@ class TimersServer extends Tcp {
 
         if (empty($task_data['unid'])) {
             $this->redis->decr('task_num');
+
             return [
                 'fd'        => $task_data['fd'],
                 'message'   => 'error'
@@ -261,9 +276,12 @@ class TimersServer extends Tcp {
      */
     public function onFinish(\swoole_server $server, $task_id, $data)
     {
-        $fd = $data['fd'];
-        $message = $data['message'];
-        $server->send($fd, 'Message : ' . $message);
+        if (!is_null($data['fd'])) {
+            $fd = $data['fd'];
+            $message = $data['message'];
+            $server->send($fd, 'Message : ' . $message);
+        }
+
     }
 
     /**
@@ -355,22 +373,18 @@ $server->addProcess(
              */
             $redis = new \Swoole\Cache\Redis('127.0.0.1', 6379);
             while (true) {
-                $client = new \Swoole\Client\Sync\Tcp('0.0.0.0:9501');
-
-                if (intval($redis->get('task_num')) < 20) {
+                if (intval($redis->get('task_num')) < $server::TASK_NUM) {
                     //todo 阻塞获取队列
                     $mq = $redis->brPop('timerslist', 0);
 
                     if ($mq && isset($mq[1])) {
-                        //todo send client task
-                        $client->recv(function (\swoole_client $client, $data) {
-
-                        })->send(
-                            json_encode([
-                                'unid'    => $mq[1],
-                                'cmd'       => 'task'
-                            ])
-                        );
+                        //todo send queue
+                        $server->getSwoole()->sendMessage(
+                            json_encode(
+                                [
+                                    'unid'    => $mq[1]
+                                ]
+                            ), mt_rand(0, $server::WORKER_NUM - 1));
                     }
                 }
             }
@@ -381,8 +395,8 @@ $server->addProcess(
 $server->resetTask();
 
 $server->run([
-    'worker_num'            => 4,
-    'task_worker_num'       => 20,
+    'worker_num'            => $server::WORKER_NUM,
+    'task_worker_num'       => $server::TASK_NUM,
     'max_request'           => 5000,
     'dispatch_mode'         => 3,
     'log_file'              => "/tmp/swoole-timers-server-0.0.0.0_9501.log",
